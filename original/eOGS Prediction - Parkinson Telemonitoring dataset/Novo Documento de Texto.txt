@@ -1,0 +1,25 @@
+load Parkinsons;
+Data = data;
+
+% %Shuffling
+% for(i=1:1000)
+%     j = round(rand*(size(Data,1)-1))+1;
+%     k = round(rand*(size(Data,1)-1))+1;
+%     aux(1,:) = Data(j,:);
+%     Data(j,:) = Data(k,:);
+%     Data(k,:) = aux(1,:);
+% end
+
+% X = [Data(:,7:22)];                 %Non-normalized inputs
+% X = [Data(:,7:16) Data(:,18:22)];             
+% X = [Data(:,7:10) Data(:,12:16) Data(:,18:22)];
+% X = [Data(:,7:10) Data(:,12) Data(:,14:16) Data(:,18:22)];
+% X = [Data(:,7:10) Data(:,12) Data(:,14) Data(:,16) Data(:,18:22)];
+% X = [Data(:,7:10) Data(:,12) Data(:,16) Data(:,18:22)];
+% X = [Data(:,7:8) Data(:,10) Data(:,12) Data(:,16) Data(:,18:22)];
+% X = [Data(:,7:8) Data(:,12) Data(:,16) Data(:,18:22)];
+% X = [Data(:,7) Data(:,12) Data(:,16) Data(:,18:22)];
+X = [Data(:,7) Data(:,12) Data(:,18:22)];
+% X = [Data(:,7) Data(:,12) Data(:,18) Data(:,20:22)];
+
+Y = [Data(:,6)];                    %Non-normalized outputs
