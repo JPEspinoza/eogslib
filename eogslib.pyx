@@ -10,18 +10,22 @@ This file compiles to a flexible eOGS library
 
 import pandas
 import cython
+import numpy
 
-def f(double x):
-    return x ** 2 - x
+class EOGS:
+    def __init__(self, alpha = 0):
+        self.alpha = alpha
+        pass
 
-def integrate_f(double a, double b, int N):
-    cdef int i
-    cdef double s
-    cdef double dx
-    s = 0
-    dx = (b - a) / N
-    for i in range(N):
-        s += f(a + i * dx)
+    def __repr__(self):
+        # shows some stats about eogs
+        pass
 
-    print("hello world")
-    return s * dx
+    def create_granule(self, int a):
+        pass
+
+    def garbage_collect_granules(self):
+        pass
+
+    def merge_granules(self):
+        pass
