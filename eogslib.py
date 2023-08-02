@@ -26,10 +26,11 @@ INITIAL_AVERAGE = 2     # experimental method that initializes granules with sam
 
 class Granule:
     """
-    n-dimensional hyperbox representing a granule
+    n-dimensional hyperbox representing a granule AND a rule
     """
     def __init__(self):
-        pass
+        # keeps track of the time the granule was created
+        self.height = 0
 
 
 class EOGS:
@@ -41,24 +42,36 @@ class EOGS:
             self,
             smoothness:float = 0.0,
             mode:int=MODE_AUTOMATIC,
-            alpha:float = 0.0, 
+            initial_values:int=INITIAL_STIEGLER,
+            alpha:float = 0.1, 
             psi:float = 2,
             minimum_distance:float = 1.0,
             window:float = numpy.inf,
-            initial_values:int=INITIAL_STIEGLER
     ):
         """
         Initializes the eogs system
         :param smoothness: smoothness of the output
         :param mode: mode of operation
-        :param alpha:  
-        :param psi: 
-        :param minimum_distance: minimum distance between granules before they are merged
-        :param window: number of samples to keep in memory
+        :param alpha: cut point for alpha-level cuts
+        :param psi: used to force gaussian dispersions to shrink or expand faster
+        :param minimum_distance: minimum distance between granules before they are merged, higher values mean less granules and reduce computational complexity
+        :param window: number of samples to keep in memory, lower values reduce space complexity
         :param initial_values: algorithm for initializing values when new granule is created
         """
+
+        self.smoothness = smoothness
+        self.mode = mode
+        self.alpha = alpha
+        self.psi = psi
+        self.minimum_distance = minimum_distance
+        self.window = window
+        self.initial_values = initial_values
+
         # keeps track of the data dimension
         self.data_width = -1
+
+        # keeps track of the number of samples seen
+        self.height = 0
 
     def __repr__(self):
         # shows some stats about eogs
@@ -67,9 +80,9 @@ class EOGS:
     def train(self, data: numpy.ndarray) -> numpy.ndarray:
         """
         Unlike normal scikit-learn libraries, eogslib train accepts a single n-dimensional sample of data
-        uses it to update its internal structures and provide a prediction for the next value
+        uses it to update its internal structures and simultaneously provide a prediction for the next value
 
-        train is supposed to be used in a loop, where the next value is fed back into the system
+        train is supposed to be used in a loop, where the next value is fed into the system constantly
         """
 
         # if this is the first time training, set the data width
@@ -80,33 +93,29 @@ class EOGS:
             raise TypeError("Data width does not match previous data width")
 
         # run process
+        if self.height == 0:
+            # create granule and rule
+            # provide prediction
+            pass
+        else: 
+            # provide prediction
+            # if granule doesnt fit, create new granule and rule
+            # else: adapt active granules
+            pass
+
+        # delete inactive granules and rules
+        # merge granules and rules
+
+        if(self.mode == MODE_AUTOMATIC):
+            # update parameters
+            pass
 
         return numpy.array([])
 
     def train_many(self, data: numpy.ndarray) -> None:
         """
-        Accepts a grid of n
+        Accepts a grid of m samples of n dimensional data
+        returns a single prediction for the LAST sample
         """
-        pass
-
-    """
-    A few 'private' functions to split the code better 
-    """
-
-    def create_granule(self, granule_a: Granule):
-        pass
-
-    def garbage_collect_granules(self):
-        pass
-
-    def merge_granules(self, granule_a: Granule, granule_b: Granule):
-        """
-        Merges two granules into a single granule
-        """
-        pass
-
-    def specificity(self):
-        """
-        Calculates the specificity of the current granules
-        """
-        pass
+        for sample in data:
+            self.train(sample)

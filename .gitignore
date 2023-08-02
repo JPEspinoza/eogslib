@@ -4,3 +4,4 @@ venv/
 .vscode/
 *.so
 *.c
+__pycache__
