@@ -78,6 +78,7 @@ Central ID: {numpy.average(self.input_central_point)}
 Input dimension: {len(self.input_lower_bounds)}
 Output dimension: {len(self.output_lower_bounds)}
 Number of samples: {len(self.samples)}
+Samples: {self.samples}
 Input lower id: {numpy.average(self.input_lower_bounds)}
 Input upper id: {numpy.average(self.input_upper_bounds)}
 Output lower id: {numpy.average(self.output_lower_bounds)}
@@ -149,8 +150,8 @@ class EOGS:
         :rtype numpy.ndarray:
         """
         return (
-                (central_point * sample_count + sample) /
-                (sample_count + 1)
+            (central_point * sample_count + sample) /
+            (sample_count + 1)
         )
 
     def dispersion(self, sample_count: int, sample: numpy.ndarray, dispersion: numpy.ndarray, lower_bounds: numpy.ndarray, central_point: numpy.ndarray) -> numpy.ndarray:
@@ -186,6 +187,33 @@ class EOGS:
         """
         return numpy.sqrt(-2 * numpy.log(self.alpha) * numpy.square(dispersion) )
 
+    def update_granule(self, g: Granule, x: numpy.ndarray, y: numpy.ndarray) -> None:
+        """
+        Takes a granule and a sample and updates the granule
+        """
+
+        # forget old samples (samples that are outside the window)
+        g.samples = [sample for sample in g.samples if self.height - sample < self.window]
+
+        sample_count = len(g.samples)
+
+        # update granule
+        # update central point and dispersion
+        g.input_central_point = self.central_point(sample_count, x, g.input_central_point)
+        g.input_dispersion = self.dispersion(sample_count, x, g.input_dispersion, g.input_lower_bounds, g.input_central_point)
+
+        g.output_central_point = self.central_point(sample_count, y, g.output_central_point)
+        g.output_dispersion = self.dispersion(sample_count, y, g.output_dispersion, g.output_lower_bounds, g.output_central_point)
+
+        # update bounds
+        g.input_lower_bounds = g.input_central_point - self.interval(g.input_dispersion)
+        g.input_upper_bounds = g.input_central_point + self.interval(g.input_dispersion)
+
+        g.output_lower_bounds = g.output_central_point - self.interval(g.output_dispersion)
+        g.output_upper_bounds = g.output_central_point + self.interval(g.output_dispersion)
+
+        g.samples.append(self.height)
+
     def train(self, x, y) -> None:
         """
         Unlike normal scikit-learn libraries, eogslib train accepts a single n-dimensional sample of data
@@ -217,8 +245,8 @@ class EOGS:
             if(
                 numpy.all(granule.input_lower_bounds <= x) and
                 numpy.all(granule.input_upper_bounds >= x) and
-                numpy.all(granule.output_lower_bound <= y) and
-                numpy.all(granule.output_upper_bound >= y)
+                numpy.all(granule.output_lower_bounds <= y) and
+                numpy.all(granule.output_upper_bounds >= y)
             ):
                 fitting_granules.append(granule)
 
@@ -246,40 +274,26 @@ class EOGS:
                 output_central_point=y,
                 output_dispersion=output_dispersion)
 
-            print(granule)
-
             self.granules.append(granule)
 
         # if the sample space is covered by a single granule, add the sample to the granule and update it
         elif len(fitting_granules) == 1:
-            g: Granule = fitting_granules.pop()
+            self.update_granule(fitting_granules[0], x, y)
 
-            # forget old samples (samples that are outside the window)
-            g.samples = [sample for sample in g.samples if self.height - sample > self.window]
-
-            sample_count = len(g.samples)
-
-            # update granule
-            # update central point and dispersion
-            g.input_central_point = self.central_point(sample_count, x, g.input_central_point)
-            g.input_dispersion = self.dispersion(sample_count, x, g.input_dispersion, g.input_lower_bounds, g.input_central_point)
-
-            g.output_central_point = self.central_point(sample_count, y, g.output_central_point)
-            g.output_dispersion = self.dispersion(sample_count, y, g.output_dispersion, g.output_lower_bound, g.output_central_point)
-
-            # update bounds
-            g.input_lower_bounds = g.input_central_point - self.interval(g.input_dispersion)
-            g.input_upper_bounds = g.input_central_point + self.interval(g.input_dispersion)
-
-            g.output_lower_bound = g.output_central_point - self.interval(g.output_dispersion)
-            g.output_upper_bound = g.output_central_point + self.interval(g.output_dispersion)
-
-            # add current sample
-            g.samples.append(self.height)
-
-        # if the sample space is covered by multiple granules, merge the granules and add the sample to the new granule
+        # if multiple granules cover the sample space, get the closest one and update it
         elif len(fitting_granules) > 1:
-            pass
+
+            minimum_distance = numpy.inf
+
+            for granule in fitting_granules:
+                distance = numpy.linalg.norm(granule.input_central_point - x)
+
+                if(distance < minimum_distance):
+                    minimum_distance = distance
+                    closest_granule = granule
+            
+            # update granule
+            self.update_granule(closest_granule, x, y)
 
         # delete inactive granules
 
@@ -289,7 +303,7 @@ class EOGS:
 
         self.height += 1
 
-    def train_many(self, x: numpy.ndarray, y: numpy.ndarray) -> None:
+    def train_many(self, x, y) -> None:
         """
         Accepts an array of t samples of n dimensional data
         with a second array of t results of m dimensional data
@@ -299,6 +313,8 @@ class EOGS:
 
         for sample, result in zip(x, y):
             self.train(sample, result)
+
+        print(len(self.granules))
 
     def predict(self, x: numpy.ndarray) -> numpy.ndarray:
         """
