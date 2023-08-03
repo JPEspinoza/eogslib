@@ -19,19 +19,36 @@ MODE_AUTOMATIC = 0           # the parameters self-tune in runtime
 MODE_INTERACTIVE = 1         # parameters are set on instancing
 
 # INITIAL GRANULE VALUES
-INITIAL_STIEGLER = 0    # with stiegler initial value, granules tend to be oversized and shrink over time
-INITIAL_MINIMAL = 1     # with minimal initial value, granules are undersized and expand over time
-INITIAL_AVERAGE = 2     # experimental method that initializes granules with same size as current granules
-
+INITIAL_STIEGLER = 1/(2*numpy.pi) # with stiegler initial value, granules tend to be oversized and shrink over time
+INITIAL_MINIMAL = 0.01     # with minimal initial value, granules are undersized and expand over time
 
 class Granule:
     """
     n-dimensional hyperbox representing a granule AND a rule
     """
-    def __init__(self):
+    def __init__(
+            self,
+            initial_sample: int,
+            input_lower_bounds: numpy.ndarray,
+            input_upper_bounds: numpy.ndarray,
+            output_lower_bound: numpy.ndarray,
+            output_upper_bound: numpy.ndarray,
+        ):
         # keeps track of the time the granule was created
-        self.height = 0
+        self.initial_sample = initial_sample
+        self.input_lower_bounds = input_lower_bounds
+        self.input_upper_bounds = input_upper_bounds
 
+        self.output_lower_bound = output_lower_bound
+        self.output_upper_bound = output_upper_bound
+
+        self.central_point = 0  # average
+        self.dispersion = 0     # standard deviation
+
+    def __repr__(self):
+        input_dimensions = len(self.input_lower_bounds)
+        output_dimensions = len(self.output_lower_bound)
+        return f"Granule with {input_dimensions} input dimensions and {output_dimensions} output dimensions"
 
 class EOGS:
     """
@@ -42,7 +59,7 @@ class EOGS:
             self,
             smoothness:float = 0.0,
             mode:int=MODE_AUTOMATIC,
-            initial_values:int=INITIAL_STIEGLER,
+            initial_dispersion:float=INITIAL_STIEGLER,
             alpha:float = 0.1, 
             psi:float = 2,
             minimum_distance:float = 1.0,
@@ -65,7 +82,7 @@ class EOGS:
         self.psi = psi
         self.minimum_distance = minimum_distance
         self.window = window
-        self.initial_values = initial_values
+        self.initial_dispersion = initial_dispersion
 
         # keeps track of the data dimension
         self.data_width = -1
@@ -73,33 +90,73 @@ class EOGS:
         # keeps track of the number of samples seen
         self.height = 0
 
+        self.granules = []
+
     def __repr__(self):
         # shows some stats about eogs
         pass
+    
 
-    def train(self, data: numpy.ndarray) -> numpy.ndarray:
+    def train(self, x: numpy.ndarray, y: float) -> tuple[float, float, float]:
         """
         Unlike normal scikit-learn libraries, eogslib train accepts a single n-dimensional sample of data
         uses it to update its internal structures and simultaneously provide a prediction for the next value
 
         train is supposed to be used in a loop, where the next value is fed into the system constantly
+
+        x is a single sample of input data (n dimensions)
+        y is the result of the sample (single value)
+
+        returns a tuple with three values, a numerical prediction and a granular prediction with a lower
+        and upper bounds
         """
 
         # if this is the first time training, set the data width
         # if data width is incorrect, raise an error
         if self.data_width == -1:
-            self.data_width = len(data)
-        elif self.data_width != len(data):
+            self.data_width = len(x)
+        elif self.data_width != len(x):
             raise TypeError("Data width does not match previous data width")
 
         # run process
         if self.height == 0:
-            # create granule and rule
-            # provide prediction
-            pass
+            # create granule
+            dispersion = numpy.sqrt(-2 * numpy.square(self.initial_dispersion) * numpy.log(self.alpha))
+
+            input_lower_bounds = x - dispersion
+            input_upper_bounds = x + dispersion
+
+            output_lower_bound = y - dispersion
+            output_upper_bound = y + dispersion
+
+            granule = Granule(
+                self.height, 
+                input_lower_bounds, 
+                input_upper_bounds,
+                output_lower_bound,
+                output_upper_bound)
+
+            self.granules.append(granule)
         else: 
             # provide prediction
-            # if granule doesnt fit, create new granule and rule
+
+
+            # get the sample space
+            dispersion = numpy.sqrt(-2 * numpy.square(self.initial_dispersion) * numpy.log(self.alpha))
+            input_lower_bounds = x - dispersion
+            input_upper_bounds = x + dispersion 
+
+            fitting_granules = []
+
+            # check if the sample space is already covered by a granule
+            for granule in self.granules:
+                if numpy.all(input_lower_bounds >= granule.input_lower_bounds) and numpy.all(input_upper_bounds <= granule.input_upper_bounds):
+                    fitting_granules.append(granule)
+
+            # if the sample space is not covered by a granule, create a new granule
+            # if the sample space is covered by a single granule, add the sample to the granule
+            # if the sample space is covered by multiple granules
+
             # else: adapt active granules
             pass
 
@@ -110,12 +167,19 @@ class EOGS:
             # update parameters
             pass
 
-        return numpy.array([])
 
-    def train_many(self, data: numpy.ndarray) -> None:
+    def train_many(self, x: numpy.ndarray, y:numpy.ndarray) -> None:
         """
         Accepts a grid of m samples of n dimensional data
         returns a single prediction for the LAST sample
         """
-        for sample in data:
-            self.train(sample)
+        for sample, result in zip(x, y):
+            self.train(sample, result)
+
+    def predict(self, x: numpy.ndarray) -> numpy.ndarray:
+        """
+        Accepts a single n-dimensional sample of data
+        returns a single prediction for the sample
+        """
+        pass
+
