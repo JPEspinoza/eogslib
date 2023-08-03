@@ -35,8 +35,8 @@ class Granule:
             input_upper_bounds: numpy.ndarray,
             input_central_point: numpy.ndarray,
             input_dispersion: numpy.ndarray,
-            output_lower_bound: numpy.ndarray,
-            output_upper_bound: numpy.ndarray,
+            output_lower_bounds: numpy.ndarray,
+            output_upper_bounds: numpy.ndarray,
             output_central_point: numpy.ndarray,
             output_dispersion: numpy.ndarray,
         ):
@@ -56,7 +56,7 @@ class Granule:
         # check dimensionality
         if len(input_lower_bounds) != len(input_upper_bounds) != len(input_central_point) != len(input_dispersion):
             raise TypeError("Input dimensionality does not match")
-        if len(output_lower_bound) != len(output_upper_bound) != len(output_central_point) != len(output_dispersion):
+        if len(output_lower_bounds) != len(output_upper_bounds) != len(output_central_point) != len(output_dispersion):
             raise TypeError("Output dimensionality does not match")
 
         # keeps track of the samples the granule contains
@@ -67,23 +67,21 @@ class Granule:
         self.input_central_point = input_central_point
         self.input_dispersion = input_dispersion
 
-        self.output_lower_bound = output_lower_bound
-        self.output_upper_bound = output_upper_bound
+        self.output_lower_bounds = output_lower_bounds
+        self.output_upper_bounds = output_upper_bounds
         self.output_central_point = output_central_point
         self.output_dispersion = output_dispersion
 
     def __repr__(self):
-        input_dimensions = len(self.input_lower_bounds)
-        output_dimensions = len(self.output_lower_bound)
-
-        central_point_id = numpy.average(self.input_central_point)
-
-        return (f"""
-        Granule cid: {central_point_id} 
-        Input dimensions: {input_dimensions}
-        Output dimensions: {output_dimensions}
-        Number of samples: {len(self.samples)}
-        """)
+        return f"""
+Central ID: {numpy.average(self.input_central_point)} 
+Input dimension: {len(self.input_lower_bounds)}
+Output dimension: {len(self.output_lower_bounds)}
+Number of samples: {len(self.samples)}
+Input lower id: {numpy.average(self.input_lower_bounds)}
+Input upper id: {numpy.average(self.input_upper_bounds)}
+Output lower id: {numpy.average(self.output_lower_bounds)}
+Output upper id: {numpy.average(self.output_upper_bounds)}"""
 
 
 class EOGS:
@@ -151,28 +149,13 @@ class EOGS:
             )
         )
 
-    def distance(self, x1: Granule, x2: Granule) -> float:
+    def interval(self, dispersion: numpy.ndarray) -> numpy.ndarray:
         """
-        returns the distance between two granules
-
-        :param Granule x1: first granule
-        :param Granule x2: second granule
-        :return: the distance between x1 and x2
-        :rtype: float
-
-        TODO
+        :param dispersion: the dispersion of the granule (n dimensional) (1,n)
+        :return: the interval of the granule (n dimensional) (1,n)
+        :rtype numpy.ndarray:
         """
-        pass
-
-    def get_closest_granule(self, x1: Granule) -> Granule:
-        """
-        :param Granule x1:
-        :return: the closest granule to x1
-        :rtype: Granule
-
-        TODO
-        """
-        pass
+        return numpy.sqrt(-2 * numpy.log(self.alpha) * numpy.square(dispersion) )
 
     def train(self, x, y) -> None:
         """
@@ -184,8 +167,8 @@ class EOGS:
         returns a tuple with three values, a numerical prediction and a granular prediction with a lower
         and upper bounds
 
-        :param arraylike x: single sample (n dimensions)
-        :param arraylike y: single output (m dimensions)
+        :param arraylike x: single sample (n dimensions) (1,n)
+        :param arraylike y: single output (m dimensions) (1,m)
         """
 
         # enforce shape (1,) and prevent unnecesary dimensions
@@ -214,15 +197,14 @@ class EOGS:
         # by adding it to the granule list and preventing it from falling out of scope
         if len(fitting_granules) == 0:
             input_dispersion = numpy.full(len(x), self.initial_dispersion)
+            input_interval = self.interval(input_dispersion)
+            input_lower_bounds = x - input_interval
+            input_upper_bounds = x + input_interval
+
             output_dispersion = numpy.full(len(y), self.initial_dispersion)
-
-            interval: float = numpy.sqrt(-2 * numpy.square(self.initial_dispersion) * numpy.log(self.alpha))
-
-            input_lower_bounds = x - interval
-            input_upper_bounds = x + interval
-
-            output_lower_bound = y - interval
-            output_upper_bound = y + interval
+            output_interval = self.interval(output_dispersion)
+            output_lower_bounds = y - output_interval
+            output_upper_bounds = y + output_interval
 
             granule = Granule(
                 initial_sample=self.height,
@@ -230,10 +212,12 @@ class EOGS:
                 input_upper_bounds=input_upper_bounds,
                 input_central_point=x,
                 input_dispersion=input_dispersion,
-                output_lower_bound=output_lower_bound,
-                output_upper_bound=output_upper_bound,
+                output_lower_bounds=output_lower_bounds,
+                output_upper_bounds=output_upper_bounds,
                 output_central_point=y,
                 output_dispersion=output_dispersion)
+
+            print(granule)
 
             self.granules.append(granule)
 
@@ -254,10 +238,12 @@ class EOGS:
             g.output_central_point = self.central_point(sample_count, y, g.output_central_point)
             g.output_dispersion = self.dispersion(sample_count, y, g.output_dispersion, g.output_lower_bound, g.output_central_point)
 
-            print(g)
-
             # update bounds
-            
+            g.input_lower_bounds = g.input_central_point - self.interval(g.input_dispersion)
+            g.input_upper_bounds = g.input_central_point + self.interval(g.input_dispersion)
+
+            g.output_lower_bound = g.output_central_point - self.interval(g.output_dispersion)
+            g.output_upper_bound = g.output_central_point + self.interval(g.output_dispersion)
 
             # add current sample
             g.samples.append(self.height)
@@ -279,6 +265,9 @@ class EOGS:
         Accepts an array of t samples of n dimensional data
         with a second array of t results of m dimensional data
         """
+        x = numpy.atleast_2d(x)
+        y = numpy.atleast_2d(y)
+
         for sample, result in zip(x, y):
             self.train(sample, result)
 
