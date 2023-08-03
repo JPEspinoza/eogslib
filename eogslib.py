@@ -132,12 +132,41 @@ class EOGS:
         pass
 
     def central_point(self, sample_count: int, sample: numpy.ndarray, central_point: numpy.ndarray) -> numpy.ndarray:
+        """
+        Returns the equation to update the central point of a granule
+
+        new_u = v * old_u + x / n + 1
+
+        where:
+        old_u is the old central_point
+        v is the number of samples
+        x is the new sample
+
+        :param int sample_count: the number of samples
+        :sample numpy.ndarray sample: the new sample (n dimensional)
+        :central_point numpy.ndarray central_point: the old central point (n dimensional)
+        :return: the new central point (n dimensional)
+        :rtype numpy.ndarray:
+        """
         return (
                 (central_point * sample_count + sample) /
                 (sample_count + 1)
         )
 
     def dispersion(self, sample_count: int, sample: numpy.ndarray, dispersion: numpy.ndarray, lower_bounds: numpy.ndarray, central_point: numpy.ndarray) -> numpy.ndarray:
+        """
+        Does the equation calculate the dispersion of a granule, used both for creating and updating granules
+
+        new_o**2 = b * old_o**2
+        where: 
+        old_o is the old dispersion
+        b is the beta value
+
+        b = (v * (u - l) + psi * |u - x|) / (v + 1) * (u - l)
+        where:
+        v is the number of samples
+
+        """
         return numpy.sqrt(
             dispersion ** 2 * (
                 (   # beta
