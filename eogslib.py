@@ -76,7 +76,14 @@ class Granule:
         input_dimensions = len(self.input_lower_bounds)
         output_dimensions = len(self.output_lower_bound)
 
-        return f"Granule with {input_dimensions} input dimensions and {output_dimensions} output dimensions"
+        central_point_id = numpy.average(self.input_central_point)
+
+        return (f"""
+        Granule cid: {central_point_id} 
+        Input dimensions: {input_dimensions}
+        Output dimensions: {output_dimensions}
+        Number of samples: {len(self.samples)}
+        """)
 
 
 class EOGS:
@@ -126,31 +133,23 @@ class EOGS:
         # shows some stats about eogs
         pass
 
-    def create_granule(self, x: numpy.ndarray, y: numpy.ndarray) -> Granule:
-        # get the dispersion and create an array with the shape of the input and
-        input_dispersion = numpy.full(len(x), self.initial_dispersion)
-        output_dispersion = numpy.full(len(y), self.initial_dispersion)
+    def central_point(self, sample_count: int, sample: numpy.ndarray, central_point: numpy.ndarray) -> numpy.ndarray:
+        return (
+                (central_point * sample_count + sample) /
+                (sample_count + 1)
+        )
 
-        interval: float = numpy.sqrt(-2 * numpy.square(self.initial_dispersion) * numpy.log(self.alpha))
-
-        input_lower_bounds = x - interval
-        input_upper_bounds = x + interval
-
-        output_lower_bound = y - interval
-        output_upper_bound = y + interval
-
-        granule = Granule(
-            initial_sample=self.height,
-            input_lower_bounds=input_lower_bounds, 
-            input_upper_bounds=input_upper_bounds,
-            input_central_point=x,
-            input_dispersion=input_dispersion,
-            output_lower_bound=output_lower_bound,
-            output_upper_bound=output_upper_bound,
-            output_central_point=y,
-            output_dispersion=output_dispersion)
-        
-        return granule
+    def dispersion(self, sample_count: int, sample: numpy.ndarray, dispersion: numpy.ndarray, lower_bounds: numpy.ndarray, central_point: numpy.ndarray) -> numpy.ndarray:
+        return numpy.sqrt(
+            dispersion ** 2 * (
+                (   # beta
+                    sample_count *
+                    (central_point - lower_bounds) +
+                    self.psi * numpy.abs(central_point - sample)
+                ) /
+                (sample_count + 1) * (central_point - lower_bounds)
+            )
+        )
 
     def distance(self, x1: Granule, x2: Granule) -> float:
         """
@@ -160,6 +159,8 @@ class EOGS:
         :param Granule x2: second granule
         :return: the distance between x1 and x2
         :rtype: float
+
+        TODO
         """
         pass
 
@@ -168,10 +169,12 @@ class EOGS:
         :param Granule x1:
         :return: the closest granule to x1
         :rtype: Granule
+
+        TODO
         """
         pass
 
-    def train(self, x: numpy.ndarray, y: numpy.ndarray) -> None:
+    def train(self, x, y) -> None:
         """
         Unlike normal scikit-learn libraries, eogslib train accepts a single n-dimensional sample of data
         uses it to update its internal structures and simultaneously provide a prediction for the next value
@@ -181,9 +184,13 @@ class EOGS:
         returns a tuple with three values, a numerical prediction and a granular prediction with a lower
         and upper bounds
 
-        :param numpy.ndarray x: single sample (n dimensions)
-        :param numpy.ndarray y: single output (m dimensions)
+        :param arraylike x: single sample (n dimensions)
+        :param arraylike y: single output (m dimensions)
         """
+
+        # enforce shape (1,) and prevent unnecesary dimensions
+        x = numpy.atleast_1d(numpy.squeeze(x))
+        y = numpy.atleast_1d(numpy.squeeze(y))
 
         # if this is the first time training, set the data width
         # if data width is incorrect, raise an error
@@ -192,22 +199,43 @@ class EOGS:
         elif self.data_width != len(x):
             raise TypeError("Data width does not match previous data width")
 
-        # get the sample space
-        new_granule = self.create_granule(x, y)
-
         # check if the sample space is already covered by a granule
         fitting_granules = []
         for granule in self.granules:
             if(
-                numpy.all(new_granule.input_lower_bounds >= granule.input_lower_bounds) and
-                numpy.all(new_granule.input_upper_bounds <= granule.input_upper_bounds)
+                numpy.all(granule.input_lower_bounds <= x) and
+                numpy.all(granule.input_upper_bounds >= x) and
+                numpy.all(granule.output_lower_bound <= y) and
+                numpy.all(granule.output_upper_bound >= y)
             ):
                 fitting_granules.append(granule)
 
         # if the sample space is not covered by a granule, "create" the new granule
         # by adding it to the granule list and preventing it from falling out of scope
         if len(fitting_granules) == 0:
-            self.granules.append(new_granule)
+            input_dispersion = numpy.full(len(x), self.initial_dispersion)
+            output_dispersion = numpy.full(len(y), self.initial_dispersion)
+
+            interval: float = numpy.sqrt(-2 * numpy.square(self.initial_dispersion) * numpy.log(self.alpha))
+
+            input_lower_bounds = x - interval
+            input_upper_bounds = x + interval
+
+            output_lower_bound = y - interval
+            output_upper_bound = y + interval
+
+            granule = Granule(
+                initial_sample=self.height,
+                input_lower_bounds=input_lower_bounds, 
+                input_upper_bounds=input_upper_bounds,
+                input_central_point=x,
+                input_dispersion=input_dispersion,
+                output_lower_bound=output_lower_bound,
+                output_upper_bound=output_upper_bound,
+                output_central_point=y,
+                output_dispersion=output_dispersion)
+
+            self.granules.append(granule)
 
         # if the sample space is covered by a single granule, add the sample to the granule and update it
         elif len(fitting_granules) == 1:
@@ -216,23 +244,20 @@ class EOGS:
             # forget old samples (samples that are outside the window)
             g.samples = [sample for sample in g.samples if self.height - sample > self.window]
 
-            # update granule
-            g.input_central_point = (
-                (g.input_central_point * len(g.samples) + numpy.concatenate(x, y)) /
-                (len(g.samples) + 1)
-            )
+            sample_count = len(g.samples)
 
-            g.input_dispersion = numpy.sqrt(
-                g.input_dispersion ** 2 * (
-                    (   # beta
-                        len(g.samples) *
-                        (g.input_central_point - numpy.concatenate(g.input_lower_bounds, g.output_lower_bound)) +
-                        self.psi * (numpy.abs(g.input_central_point - numpy.concatenate(x, y)))
-                    ) /
-                    (len(g.samples) + 1) *
-                    (g.input_central_point - numpy.concatenate(g.input_lower_bounds, g.output_lower_bound))
-                )
-            )
+            # update granule
+            # update central point and dispersion
+            g.input_central_point = self.central_point(sample_count, x, g.input_central_point)
+            g.input_dispersion = self.dispersion(sample_count, x, g.input_dispersion, g.input_lower_bounds, g.input_central_point)
+
+            g.output_central_point = self.central_point(sample_count, y, g.output_central_point)
+            g.output_dispersion = self.dispersion(sample_count, y, g.output_dispersion, g.output_lower_bound, g.output_central_point)
+
+            print(g)
+
+            # update bounds
+            
 
             # add current sample
             g.samples.append(self.height)
@@ -261,6 +286,8 @@ class EOGS:
         """
         Accepts a single n-dimensional sample of data
         returns a single m-dimensional prediction for the sample
+
+        TODO
         """
         pass
 
@@ -268,5 +295,7 @@ class EOGS:
         """
         Accepts a single n-dimensional sample of data
         returns an m*2-dimensional interval prediction for the sample
+
+        TODO
         """
         pass
