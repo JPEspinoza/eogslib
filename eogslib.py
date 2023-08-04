@@ -13,6 +13,7 @@ high level overview of eogs:
 """
 
 import numpy
+import itertools
 
 # MODES
 MODE_AUTOMATIC = 0           # the parameters self-tune in runtime
@@ -30,7 +31,7 @@ class Granule:
 
     def __init__(
             self,
-            initial_sample: int,
+            initial_samples: list[int],
             input_lower_bounds: numpy.ndarray,
             input_upper_bounds: numpy.ndarray,
             input_central_point: numpy.ndarray,
@@ -60,7 +61,7 @@ class Granule:
             raise TypeError("Output dimensionality does not match")
 
         # keeps track of the samples the granule contains
-        self.samples = [initial_sample]
+        self.samples = initial_samples
 
         self.input_lower_bounds = input_lower_bounds
         self.input_upper_bounds = input_upper_bounds
@@ -98,7 +99,7 @@ class EOGS:
             alpha: float = 0.1,
             psi: float = 2,
             minimum_distance: float = 1.0,
-            window: float = numpy.inf,
+            window: int = 1000,
     ):
         """
         Initializes the eogs system
@@ -156,7 +157,7 @@ class EOGS:
 
     def dispersion(self, sample_count: int, sample: numpy.ndarray, dispersion: numpy.ndarray, lower_bounds: numpy.ndarray, central_point: numpy.ndarray) -> numpy.ndarray:
         """
-        Does the equation calculate the dispersion of a granule, used both for creating and updating granules
+        Does the equation calculate the dispersion of a granule, used for updating granules
 
         new_o**2 = b * old_o**2
         where: 
@@ -187,14 +188,34 @@ class EOGS:
         """
         return numpy.sqrt(-2 * numpy.log(self.alpha) * numpy.square(dispersion) )
 
+    def create_granule(self, 
+            samples: list[int], 
+            input_central_point: numpy.ndarray, 
+            input_dispersion: numpy.ndarray, 
+            output_central_point: numpy.ndarray, 
+            output_dispersion: numpy.ndarray) -> Granule:
+
+        input_lower_bounds = input_central_point - self.interval(input_dispersion)
+        input_upper_bounds = input_central_point + self.interval(input_dispersion)
+
+        output_lower_bounds = output_central_point - self.interval(output_dispersion)
+        output_upper_bounds = output_central_point + self.interval(output_dispersion)
+
+        return Granule(
+            initial_samples=samples,
+            input_lower_bounds=input_lower_bounds,
+            input_upper_bounds=input_upper_bounds,
+            input_central_point=input_central_point,
+            input_dispersion=input_dispersion,
+            output_lower_bounds=output_lower_bounds,
+            output_upper_bounds=output_upper_bounds,
+            output_central_point=output_central_point,
+            output_dispersion=output_dispersion)
+
     def update_granule(self, g: Granule, x: numpy.ndarray, y: numpy.ndarray) -> None:
         """
         Takes a granule and a sample and updates the granule
         """
-
-        # forget old samples (samples that are outside the window)
-        g.samples = [sample for sample in g.samples if self.height - sample < self.window]
-
         sample_count = len(g.samples)
 
         # update granule
@@ -254,26 +275,10 @@ class EOGS:
         # by adding it to the granule list and preventing it from falling out of scope
         if len(fitting_granules) == 0:
             input_dispersion = numpy.full(len(x), self.initial_dispersion)
-            input_interval = self.interval(input_dispersion)
-            input_lower_bounds = x - input_interval
-            input_upper_bounds = x + input_interval
-
             output_dispersion = numpy.full(len(y), self.initial_dispersion)
-            output_interval = self.interval(output_dispersion)
-            output_lower_bounds = y - output_interval
-            output_upper_bounds = y + output_interval
 
-            granule = Granule(
-                initial_sample=self.height,
-                input_lower_bounds=input_lower_bounds, 
-                input_upper_bounds=input_upper_bounds,
-                input_central_point=x,
-                input_dispersion=input_dispersion,
-                output_lower_bounds=output_lower_bounds,
-                output_upper_bounds=output_upper_bounds,
-                output_central_point=y,
-                output_dispersion=output_dispersion)
-
+            granule = self.create_granule([self.height], x, input_dispersion, y, output_dispersion)
+            
             self.granules.append(granule)
 
         # if the sample space is covered by a single granule, add the sample to the granule and update it
@@ -282,12 +287,9 @@ class EOGS:
 
         # if multiple granules cover the sample space, get the closest one and update it
         elif len(fitting_granules) > 1:
-
             minimum_distance = numpy.inf
-
             for granule in fitting_granules:
                 distance = numpy.linalg.norm(granule.input_central_point - x)
-
                 if(distance < minimum_distance):
                     minimum_distance = distance
                     closest_granule = granule
@@ -296,6 +298,32 @@ class EOGS:
             self.update_granule(closest_granule, x, y)
 
         # delete inactive granules
+        for granule in self.granules:
+            # forget old samples
+            granule.samples = [sample for sample in granule.samples if self.height - sample < self.window]
+
+            # delete inactive granules
+            if len(granule.samples) == 0:
+                self.granules.remove(granule)
+
+        # merge granules
+        for g1, g2 in itertools.combinations(self.granules, 2):
+            # calculate disntance between granules
+            distance = numpy.linalg.norm(g1.input_central_point - g2.input_central_point)
+
+            if distance < self.minimum_distance:
+                # combine the granules
+                input_central_point = g1.input_central_point * len(g1.samples) + g2.input_central_point * len(g2.samples) / (len(g1.samples) + len(g2.samples))
+                input_dispersion = numpy.max([g1.input_dispersion, g2.input_dispersion], axis=0)
+
+                output_central_point = g1.output_central_point * len(g1.samples) + g2.output_central_point * len(g2.samples) / (len(g1.samples) + len(g2.samples))
+                output_dispersion = numpy.max([g1.output_dispersion, g2.output_dispersion], axis=0)
+
+                new_granule = self.create_granule(g1.samples + g2.samples, input_central_point, input_dispersion, output_central_point, output_dispersion)
+
+                self.granules.remove(g1)
+                self.granules.remove(g2)
+                self.granules.append(new_granule)
 
         if self.mode == MODE_AUTOMATIC:
             # update parameters
