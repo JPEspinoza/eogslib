@@ -158,7 +158,13 @@ class EOGS:
             (sample_count + 1)
         )
 
-    def dispersion(self, sample_count: int, sample: numpy.ndarray, dispersion: numpy.ndarray, lower_bounds: numpy.ndarray, central_point: numpy.ndarray) -> numpy.ndarray:
+    def dispersion(
+            self, 
+            sample_count: int, 
+            sample: numpy.ndarray, 
+            dispersion: numpy.ndarray, 
+            lower_bounds: numpy.ndarray, 
+            central_point: numpy.ndarray) -> numpy.ndarray:
         """
         Does the equation calculate the dispersion of a granule, used for updating granules
 
@@ -309,7 +315,7 @@ class EOGS:
                 if(distance < minimum_distance):
                     minimum_distance = distance
                     closest_granule = granule
-            
+
             # update granule
             self.update_granule(closest_granule, x, y)
 
@@ -379,7 +385,7 @@ class EOGS:
         for sample, result in zip(x, y):
             self.train(sample, result)
 
-    def predict(self, x: numpy.ndarray) -> numpy.ndarray:
+    def predict_scalar(self, x) -> numpy.ndarray:
         """
         Accepts a single (n,1) sample of data
         Returns a single (m,1) prediction for the sample
@@ -407,16 +413,13 @@ class EOGS:
                 closest_granule = granule
 
         if(
+            not isinstance(closest_granule, Granule) or
             numpy.all(closest_granule.input_lower_bounds >= x) or
             numpy.all(closest_granule.input_upper_bounds <= x)
         ):
             raise ValueError("No granule fits the sample")
 
-        y = closest_granule.coefficients[0] + numpy.dot(closest_granule.coefficients[1:], x)        
-
-        print(y)
-
-        print(closest_granule)
+        return closest_granule.coefficients[0] + numpy.dot(x, closest_granule.coefficients[1:])        
 
     def predict_granular(self, x) -> numpy.ndarray:
         """

@@ -14,4 +14,6 @@ test_data = test_data.head(1)
 eogs = eogslib.EOGS()
 eogs.train_many(training_data, test_data)
 
-eogs.predict_granular(training_data)
+prediction = eogs.predict_scalar(training_data)
+print(prediction)
+print(test_data)
