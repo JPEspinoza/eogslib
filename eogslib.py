@@ -40,18 +40,20 @@ class Granule:
             output_upper_bounds: numpy.ndarray,
             output_central_point: numpy.ndarray,
             output_dispersion: numpy.ndarray,
+            coefficients: numpy.ndarray,
         ):
         """
         Initializes a granule
         :param int initial_sample: the height of the first sample
-        :param numpy.ndarray input_lower_bounds: the lower bounds of the input space (n dimensional) (1,n)
-        :param numpy.ndarray input_upper_bounds: the upper bounds of the input space (n dimensional) (1,n)
-        :param numpy.ndarray input_central_point: the central point (avg) of the input space (n dimensional) (1,n)
-        :param numpy.ndarray input_dispersion: the dispersion (std. deviation) of the input space (n dimensional) (1,n)
-        :param numpy.ndarray output_lower_bound: the lower bound of the output space (m dimensional) (1,m)
-        :param numpy.ndarray output_upper_bound: the upper bound of the output space (m dimensional) (1,m)
-        :param numpy.ndarray output_central_point: the central point of the output space (m dimensional) (1,m)
-        :param numpy.ndarray output_dispersion: the dispersion of the output space (m dimensional) (1,m)
+        :param numpy.ndarray input_lower_bounds: the lower bounds of the input space (1,n)
+        :param numpy.ndarray input_upper_bounds: the upper bounds of the input space (1,n)
+        :param numpy.ndarray input_central_point: the central point (avg) of the input space (1,n)
+        :param numpy.ndarray input_dispersion: the dispersion (std. deviation) of the input space (1,n)
+        :param numpy.ndarray output_lower_bound: the lower bound of the output space (1,m)
+        :param numpy.ndarray output_upper_bound: the upper bound of the output space (1,m)
+        :param numpy.ndarray output_central_point: the central point of the output space (1,m)
+        :param numpy.ndarray output_dispersion: the dispersion of the output space (1,m)
+        :param numpy.ndarray coefficients: the output coefficients of the granule (n+1,m)
         """
 
         # check dimensionality
@@ -72,6 +74,8 @@ class Granule:
         self.output_upper_bounds = output_upper_bounds
         self.output_central_point = output_central_point
         self.output_dispersion = output_dispersion
+
+        self.coefficients = coefficients
 
     def __repr__(self):
         return f"""
@@ -99,7 +103,7 @@ class EOGS:
             alpha: float = 0.1,
             psi: float = 2,
             minimum_distance: float = 0.0,
-            window: int = numpy.inf,
+            window: float = numpy.inf,
     ):
         """
         Initializes the eogs system
@@ -200,6 +204,18 @@ class EOGS:
         output_lower_bounds = output_central_point - self.interval(output_dispersion)
         output_upper_bounds = output_central_point + self.interval(output_dispersion)
 
+        """
+        # calculate coefficients
+        [ [ y1, y2, ... ,ym],
+          [ 0,  0,  ..., 0 ],
+          ...
+          [ 0,  0,  ..., 0 ]]
+
+        n rows, m columns
+        """
+        coefficients = numpy.array(output_central_point)
+        coefficients = numpy.vstack([coefficients, numpy.zeros((len(input_central_point), 1))])
+
         return Granule(
             initial_samples=samples,
             input_lower_bounds=input_lower_bounds,
@@ -209,7 +225,8 @@ class EOGS:
             output_lower_bounds=output_lower_bounds,
             output_upper_bounds=output_upper_bounds,
             output_central_point=output_central_point,
-            output_dispersion=output_dispersion)
+            output_dispersion=output_dispersion,
+            coefficients=coefficients)
 
     def update_granule(self, g: Granule, x: numpy.ndarray, y: numpy.ndarray) -> None:
         """
@@ -362,22 +379,53 @@ class EOGS:
         for sample, result in zip(x, y):
             self.train(sample, result)
 
-        print(len(self.granules))
-
     def predict(self, x: numpy.ndarray) -> numpy.ndarray:
         """
-        Accepts a single n-dimensional sample of data
-        returns a single m-dimensional prediction for the sample
+        Accepts a single (n,1) sample of data
+        Returns a single (m,1) prediction for the sample
 
-        TODO
+        check which granule fits
+        if no granule fits fail
+        if one granule fits, return the prediction
+        if multiple granules fit, use closest one
+
+        formulae
+        y = a0 + (a1 * x1 + a2 * x2 + ... + an * xn)
         """
-        pass
+        x = numpy.atleast_1d(numpy.squeeze(x))
 
-    def predict_granular(self, x: numpy.ndarray) -> tuple[numpy.ndarray, numpy.ndarray]:
+        if(self.data_width != len(x)):
+            raise TypeError("Data width does not match previous data width")
+
+        minimum_distance = numpy.inf
+        closest_granule = None
+
+        for granule in self.granules:
+            distance = numpy.linalg.norm(granule.input_central_point - x)
+            if(distance < minimum_distance):
+                minimum_distance = distance
+                closest_granule = granule
+
+        if(
+            numpy.all(closest_granule.input_lower_bounds >= x) or
+            numpy.all(closest_granule.input_upper_bounds <= x)
+        ):
+            raise ValueError("No granule fits the sample")
+
+        y = closest_granule.coefficients[0] + numpy.dot(closest_granule.coefficients[1:], x)        
+
+        print(y)
+
+        print(closest_granule)
+
+    def predict_granular(self, x) -> numpy.ndarray:
         """
         Accepts a single n-dimensional sample of data
-        returns an m*2-dimensional interval prediction for the sample
+        returns an (m,2) interval prediction for the sample
 
-        TODO
+        check which rule (granule) fits the sample
+        if no granule fits fail
+        if one granule fits, return the prediction
+        if multiple granules fit, use closest one
         """
         pass
