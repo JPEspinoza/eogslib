@@ -44,14 +44,14 @@ class Granule:
         """
         Initializes a granule
         :param int initial_sample: the height of the first sample
-        :param numpy.ndarray input_lower_bounds: the lower bounds of the input space (n dimensional)
-        :param numpy.ndarray input_upper_bounds: the upper bounds of the input space (n dimensional)
-        :param numpy.ndarray input_central_point: the central point (avg) of the input space (n dimensional)
-        :param numpy.ndarray input_dispersion: the dispersion (std. deviation) of the input space (n dimensional)
-        :param numpy.ndarray output_lower_bound: the lower bound of the output space (m dimensional)
-        :param numpy.ndarray output_upper_bound: the upper bound of the output space (m dimensional)
-        :param numpy.ndarray output_central_point: the central point of the output space (m dimensional)
-        :param numpy.ndarray output_dispersion: the dispersion of the output space (m dimensional)
+        :param numpy.ndarray input_lower_bounds: the lower bounds of the input space (n dimensional) (1,n)
+        :param numpy.ndarray input_upper_bounds: the upper bounds of the input space (n dimensional) (1,n)
+        :param numpy.ndarray input_central_point: the central point (avg) of the input space (n dimensional) (1,n)
+        :param numpy.ndarray input_dispersion: the dispersion (std. deviation) of the input space (n dimensional) (1,n)
+        :param numpy.ndarray output_lower_bound: the lower bound of the output space (m dimensional) (1,m)
+        :param numpy.ndarray output_upper_bound: the upper bound of the output space (m dimensional) (1,m)
+        :param numpy.ndarray output_central_point: the central point of the output space (m dimensional) (1,m)
+        :param numpy.ndarray output_dispersion: the dispersion of the output space (m dimensional) (1,m)
         """
 
         # check dimensionality
@@ -98,8 +98,8 @@ class EOGS:
             initial_dispersion: float = INITIAL_STIEGLER,
             alpha: float = 0.1,
             psi: float = 2,
-            minimum_distance: float = 1.0,
-            window: int = 1000,
+            minimum_distance: float = 0.0,
+            window: int = numpy.inf,
     ):
         """
         Initializes the eogs system
@@ -107,9 +107,8 @@ class EOGS:
         :param mode: mode of operation
         :param alpha: cut point for alpha-level cuts
         :param psi: used to force gaussian dispersions to shrink or expand faster
-        :param minimum_distance: minimum distance between granules before they are merged,
-        higher values mean less granules and reduce computational complexity
-        :param window: number of samples to keep in memory, lower values reduce space complexity
+        :param minimum_distance: minimum distance between granules before they are merged, higher values reduce complexity. If 0 or below, merge is disabled
+        :param window: maximum age of samples. Default infinite. Info, samples are never kept in memory, this simply kills granules that are too old
         """
 
         self.smoothness = smoothness
@@ -307,23 +306,41 @@ class EOGS:
                 self.granules.remove(granule)
 
         # merge granules
-        for g1, g2 in itertools.combinations(self.granules, 2):
-            # calculate disntance between granules
-            distance = numpy.linalg.norm(g1.input_central_point - g2.input_central_point)
+        if(self.minimum_distance > 0.0):
+            # this code is enormously slow and above ~200 granules it becomes too slow to be practical
+            # TODO: put granules in k-d tree to speed up distance calculation
 
-            if distance < self.minimum_distance:
-                # combine the granules
-                input_central_point = g1.input_central_point * len(g1.samples) + g2.input_central_point * len(g2.samples) / (len(g1.samples) + len(g2.samples))
-                input_dispersion = numpy.max([g1.input_dispersion, g2.input_dispersion], axis=0)
+            granules_to_merge = set()
+            new_granules = set()
+            for g1, g2 in itertools.combinations(self.granules, 2):
+                # if either of granules have already been merged, skip
+                if g1 in granules_to_merge or g2 in granules_to_merge:
+                    continue
 
-                output_central_point = g1.output_central_point * len(g1.samples) + g2.output_central_point * len(g2.samples) / (len(g1.samples) + len(g2.samples))
-                output_dispersion = numpy.max([g1.output_dispersion, g2.output_dispersion], axis=0)
+                # calculate disntance between granules
+                distance = numpy.linalg.norm(g1.input_central_point - g2.input_central_point)
 
-                new_granule = self.create_granule(g1.samples + g2.samples, input_central_point, input_dispersion, output_central_point, output_dispersion)
+                if distance < self.minimum_distance:
+                    # combine the granules
+                    input_central_point = g1.input_central_point * len(g1.samples) + g2.input_central_point * len(g2.samples) / (len(g1.samples) + len(g2.samples))
+                    input_dispersion = numpy.max([g1.input_dispersion, g2.input_dispersion], axis=0)
 
-                self.granules.remove(g1)
-                self.granules.remove(g2)
-                self.granules.append(new_granule)
+                    output_central_point = g1.output_central_point * len(g1.samples) + g2.output_central_point * len(g2.samples) / (len(g1.samples) + len(g2.samples))
+                    output_dispersion = numpy.max([g1.output_dispersion, g2.output_dispersion], axis=0)
+
+                    new_granule = self.create_granule(g1.samples + g2.samples, input_central_point, input_dispersion, output_central_point, output_dispersion)
+
+                    granules_to_merge.add(g1)
+                    granules_to_merge.add(g2)
+                    new_granules.add(new_granule)
+
+            # remove merged granules
+            for granule in granules_to_merge:
+                self.granules.remove(granule)
+
+            # add new granules
+            for granule in new_granules:
+                self.granules.append(granule)
 
         if self.mode == MODE_AUTOMATIC:
             # update parameters
@@ -335,6 +352,9 @@ class EOGS:
         """
         Accepts an array of t samples of n dimensional data
         with a second array of t results of m dimensional data
+
+        :param arraylike x: samples (t,n)
+        :param arraylike y: results (t,m)
         """
         x = numpy.atleast_2d(x)
         y = numpy.atleast_2d(y)
