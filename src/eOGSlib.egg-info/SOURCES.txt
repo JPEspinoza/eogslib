@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+src/__init__.py
+src/eogslib.py
+src/eOGSlib.egg-info/PKG-INFO
+src/eOGSlib.egg-info/SOURCES.txt
+src/eOGSlib.egg-info/dependency_links.txt
+src/eOGSlib.egg-info/top_level.txt
