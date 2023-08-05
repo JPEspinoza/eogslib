@@ -93,6 +93,16 @@ Output upper id: {numpy.average(self.output_upper_bounds)}"""
 class EOGS:
     """
     eOGS is an evolving prediction system for nonlinear numerical systems
+
+    it accepts samples of n dimensions and returns outputs of m dimensions
+
+    it is designed to handle data streams where the results become available delayed
+    ex: meteorological data, stock market data, etc.
+
+    To use with delayed results:
+    1. train with your current samples 
+    2. predict the current sample without a result
+    3. when the result becomes available, train with the sample and result
     """
 
     def __init__(
@@ -100,7 +110,7 @@ class EOGS:
             smoothness: float = 0.0,
             mode: int = MODE_AUTOMATIC,
             initial_dispersion: float = INITIAL_STIEGLER,
-            alpha: float = 0.1,
+            alpha: float = 0.01,
             psi: float = 2,
             minimum_distance: float = 0.0,
             window: float = numpy.inf,
@@ -109,7 +119,7 @@ class EOGS:
         Initializes the eogs system
         :param smoothness: smoothness of the output
         :param mode: mode of operation
-        :param alpha: cut point for alpha-level cuts
+        :param alpha: cut point for alpha-level cuts. Lower means larger intervals
         :param psi: used to force gaussian dispersions to shrink or expand faster
         :param minimum_distance: minimum distance between granules before they are merged, higher values reduce complexity. If 0 or below, merge is disabled
         :param window: maximum age of samples. Default infinite. Info, samples are never kept in memory, this simply kills granules that are too old
@@ -219,8 +229,14 @@ class EOGS:
 
         n rows, m columns
         """
-        coefficients = numpy.array(output_central_point)
-        coefficients = numpy.vstack([coefficients, numpy.zeros((len(input_central_point), 1))])
+        # top row
+        coefficients_0 = numpy.array(output_central_point)
+
+        # zero rows
+        coefficients_n = numpy.zeros((len(input_central_point),len(output_central_point)))
+
+        # assemble coefficients
+        coefficients = numpy.vstack([coefficients_0, coefficients_n])
 
         return Granule(
             initial_samples=samples,
@@ -256,6 +272,32 @@ class EOGS:
         g.output_upper_bounds = g.output_central_point + self.interval(g.output_dispersion)
 
         g.samples.append(self.height)
+    
+    def get_closest_granule(self, x: numpy.ndarray) -> Granule | None:
+        """
+        Returns the closest FITTING granule to the sample
+        """
+        # check fitting granules
+        fitting_granules = []
+
+        for granule in self.granules:
+            if(numpy.all(granule.input_lower_bounds <= x) and numpy.all(granule.input_upper_bounds >= x)):
+                fitting_granules.append(granule)
+
+        # get closest fitting granule
+        minimum_distance = numpy.inf
+        closest_granule = None
+
+        for granule in fitting_granules:
+            distance = numpy.linalg.norm(granule.input_central_point - x)
+            if(distance < minimum_distance):
+                minimum_distance = distance
+                closest_granule = granule
+
+        if(closest_granule is None):
+            return None
+        else:
+            return closest_granule
 
     def train(self, x, y) -> None:
         """
@@ -282,42 +324,19 @@ class EOGS:
         elif self.data_width != len(x):
             raise TypeError("Data width does not match previous data width")
 
-        # check if the sample space is already covered by a granule
-        fitting_granules = []
-        for granule in self.granules:
-            if(
-                numpy.all(granule.input_lower_bounds <= x) and
-                numpy.all(granule.input_upper_bounds >= x) and
-                numpy.all(granule.output_lower_bounds <= y) and
-                numpy.all(granule.output_upper_bounds >= y)
-            ):
-                fitting_granules.append(granule)
+        granule = self.get_closest_granule(x)
 
-        # if the sample space is not covered by a granule, "create" the new granule
-        # by adding it to the granule list and preventing it from falling out of scope
-        if len(fitting_granules) == 0:
+        if granule == None:
+            # if no granule fits, create new one
             input_dispersion = numpy.full(len(x), self.initial_dispersion)
             output_dispersion = numpy.full(len(y), self.initial_dispersion)
 
             granule = self.create_granule([self.height], x, input_dispersion, y, output_dispersion)
             
             self.granules.append(granule)
-
-        # if the sample space is covered by a single granule, add the sample to the granule and update it
-        elif len(fitting_granules) == 1:
-            self.update_granule(fitting_granules[0], x, y)
-
-        # if multiple granules cover the sample space, get the closest one and update it
-        elif len(fitting_granules) > 1:
-            minimum_distance = numpy.inf
-            for granule in fitting_granules:
-                distance = numpy.linalg.norm(granule.input_central_point - x)
-                if(distance < minimum_distance):
-                    minimum_distance = distance
-                    closest_granule = granule
-
-            # update granule
-            self.update_granule(closest_granule, x, y)
+        else:
+            # if granule fits, update it
+            self.update_granule(granule, x, y)
 
         # delete inactive granules
         for granule in self.granules:
@@ -403,32 +422,35 @@ class EOGS:
         if(self.data_width != len(x)):
             raise TypeError("Data width does not match previous data width")
 
-        minimum_distance = numpy.inf
-        closest_granule = None
+        granule = self.get_closest_granule(x)
 
-        for granule in self.granules:
-            distance = numpy.linalg.norm(granule.input_central_point - x)
-            if(distance < minimum_distance):
-                minimum_distance = distance
-                closest_granule = granule
+        if granule == None:
+            raise Exception("No granule fits the sample")
 
-        if(
-            not isinstance(closest_granule, Granule) or
-            numpy.all(closest_granule.input_lower_bounds >= x) or
-            numpy.all(closest_granule.input_upper_bounds <= x)
-        ):
-            raise ValueError("No granule fits the sample")
+        return granule.coefficients[0] + numpy.dot(x, granule.coefficients[1:])        
+    
+    def predict(self, x) -> numpy.ndarray:
+        """
+        Same as predict_scalar
+        """
+        return self.predict_scalar(x)
 
-        return closest_granule.coefficients[0] + numpy.dot(x, closest_granule.coefficients[1:])        
-
-    def predict_granular(self, x) -> numpy.ndarray:
+    def predict_interval(self, x) -> numpy.ndarray:
         """
         Accepts a single n-dimensional sample of data
-        returns an (m,2) interval prediction for the sample
-
-        check which rule (granule) fits the sample
-        if no granule fits fail
-        if one granule fits, return the prediction
-        if multiple granules fit, use closest one
+        returns an (2,m) interval prediction for the sample
+        first row is lower bound, second row is upper bound
+        each column is a dimension of the output
         """
-        pass
+
+        x = numpy.atleast_1d(numpy.squeeze(x))
+
+        if(self.data_width != len(x)):
+            raise TypeError("Data width does not match previous data width")
+
+        granule = self.get_closest_granule(x)
+
+        if granule == None:
+            raise Exception("No granule fits the sample")
+
+        return numpy.array([granule.output_lower_bounds, granule.output_upper_bounds])
