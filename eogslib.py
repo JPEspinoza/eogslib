@@ -347,43 +347,6 @@ class EOGS:
             if len(granule.samples) == 0:
                 self.granules.remove(granule)
 
-        # merge granules
-        if(self.minimum_distance > 0.0):
-            # this code is enormously slow and above ~200 granules it becomes too slow to be practical
-            # TODO: put granules in k-d tree to speed up distance calculation
-
-            granules_to_merge = set()
-            new_granules = set()
-            for g1, g2 in itertools.combinations(self.granules, 2):
-                # if either of granules have already been merged, skip
-                if g1 in granules_to_merge or g2 in granules_to_merge:
-                    continue
-
-                # calculate disntance between granules
-                distance = numpy.linalg.norm(g1.input_central_point - g2.input_central_point)
-
-                if distance < self.minimum_distance:
-                    # combine the granules
-                    input_central_point = g1.input_central_point * len(g1.samples) + g2.input_central_point * len(g2.samples) / (len(g1.samples) + len(g2.samples))
-                    input_dispersion = numpy.max([g1.input_dispersion, g2.input_dispersion], axis=0)
-
-                    output_central_point = g1.output_central_point * len(g1.samples) + g2.output_central_point * len(g2.samples) / (len(g1.samples) + len(g2.samples))
-                    output_dispersion = numpy.max([g1.output_dispersion, g2.output_dispersion], axis=0)
-
-                    new_granule = self.create_granule(g1.samples + g2.samples, input_central_point, input_dispersion, output_central_point, output_dispersion)
-
-                    granules_to_merge.add(g1)
-                    granules_to_merge.add(g2)
-                    new_granules.add(new_granule)
-
-            # remove merged granules
-            for granule in granules_to_merge:
-                self.granules.remove(granule)
-
-            # add new granules
-            for granule in new_granules:
-                self.granules.append(granule)
-
         if self.mode == MODE_AUTOMATIC:
             # update parameters
             pass
