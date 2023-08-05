@@ -13,7 +13,6 @@ high level overview of eogs:
 """
 
 import numpy
-import itertools
 
 # MODES
 MODE_AUTOMATIC = 0           # the parameters self-tune in runtime
