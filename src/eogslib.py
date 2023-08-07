@@ -286,7 +286,9 @@ class EOGS:
         g.samples.append(sample)
 
         # update coefficients
-        XX = numpy.array([sample.input for sample in g.samples])
+        # I have no idea if this is even remotely correct
+        # at the very least it doesn't crash
+        XX = numpy.vstack([numpy.ones((len(sample.input))), [sample.input for sample in g.samples]]).T
         YY = numpy.array([sample.output for sample in g.samples])
 
         g.coefficients = numpy.linalg.lstsq(XX, YY, rcond=None)[0]
