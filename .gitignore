@@ -5,3 +5,4 @@ venv/
 *.so
 *.c
 __pycache__
+.env

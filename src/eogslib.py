@@ -22,6 +22,18 @@ MODE_INTERACTIVE = 1         # parameters are set on instancing
 INITIAL_STIEGLER = 1/(2*numpy.pi)   # with stiegler initial value, granules tend to be oversized and shrink over time
 INITIAL_MINIMAL = 0.01              # with minimal initial value, granules are undersized and expand over time
 
+class Sample:
+    def __init__(
+            self,
+            height: int,
+            input: numpy.ndarray,
+            output: numpy.ndarray):
+        self.height = height
+        self.input = input
+        self.output = output
+
+    def __repr__(self):
+        return f"Sample: {self.height} {self.input} {self.output}"
 
 class Granule:
     """
@@ -30,7 +42,7 @@ class Granule:
 
     def __init__(
             self,
-            initial_samples: list[int],
+            initial_sample: Sample,
             input_lower_bounds: numpy.ndarray,
             input_upper_bounds: numpy.ndarray,
             input_central_point: numpy.ndarray,
@@ -43,7 +55,7 @@ class Granule:
         ):
         """
         Initializes a granule
-        :param int initial_sample: the height of the first sample
+        :param int initial_sample: the initial sample of the granule
         :param numpy.ndarray input_lower_bounds: the lower bounds of the input space (1,n)
         :param numpy.ndarray input_upper_bounds: the upper bounds of the input space (1,n)
         :param numpy.ndarray input_central_point: the central point (avg) of the input space (1,n)
@@ -62,7 +74,7 @@ class Granule:
             raise TypeError("Output dimensionality does not match")
 
         # keeps track of the samples the granule contains
-        self.samples = initial_samples
+        self.samples: list[Sample] = [initial_sample]
 
         self.input_lower_bounds = input_lower_bounds
         self.input_upper_bounds = input_upper_bounds
@@ -112,7 +124,7 @@ class EOGS:
             alpha: float = 0.01,
             psi: float = 2,
             minimum_distance: float = 0.0,
-            window: float = numpy.inf,
+            window: float = 1000,
     ):
         """
         Initializes the eogs system
@@ -143,7 +155,7 @@ class EOGS:
 
     def __repr__(self):
         # shows some stats about eogs
-        pass
+        return f""
 
     def central_point(self, sample_count: int, sample: numpy.ndarray, central_point: numpy.ndarray) -> numpy.ndarray:
         """
@@ -207,7 +219,6 @@ class EOGS:
         return numpy.sqrt(-2 * numpy.log(self.alpha) * numpy.square(dispersion) )
 
     def create_granule(self, 
-            samples: list[int], 
             input_central_point: numpy.ndarray, 
             input_dispersion: numpy.ndarray, 
             output_central_point: numpy.ndarray, 
@@ -220,7 +231,7 @@ class EOGS:
         output_upper_bounds = output_central_point + self.interval(output_dispersion)
 
         """
-        # calculate coefficients
+        # calculate coefficients to use for predictions
         [ [ y1, y2, ... ,ym],
           [ 0,  0,  ..., 0 ],
           ...
@@ -230,15 +241,15 @@ class EOGS:
         """
         # top row
         coefficients_0 = numpy.array(output_central_point)
-
         # zero rows
         coefficients_n = numpy.zeros((len(input_central_point),len(output_central_point)))
-
         # assemble coefficients
         coefficients = numpy.vstack([coefficients_0, coefficients_n])
 
+        sample = Sample(self.height, input_central_point, output_central_point)
+
         return Granule(
-            initial_samples=samples,
+            initial_sample=sample,
             input_lower_bounds=input_lower_bounds,
             input_upper_bounds=input_upper_bounds,
             input_central_point=input_central_point,
@@ -270,8 +281,16 @@ class EOGS:
         g.output_lower_bounds = g.output_central_point - self.interval(g.output_dispersion)
         g.output_upper_bounds = g.output_central_point + self.interval(g.output_dispersion)
 
-        g.samples.append(self.height)
-    
+        # add sample to sample list
+        sample = Sample(self.height, x, y)
+        g.samples.append(sample)
+
+        # update coefficients
+        XX = numpy.array([sample.input for sample in g.samples])
+        YY = numpy.array([sample.output for sample in g.samples])
+
+        g.coefficients = numpy.linalg.lstsq(XX, YY, rcond=None)[0]
+
     def get_closest_granule(self, x: numpy.ndarray) -> Granule | None:
         """
         Returns the closest FITTING granule to the sample
@@ -330,7 +349,7 @@ class EOGS:
             input_dispersion = numpy.full(len(x), self.initial_dispersion)
             output_dispersion = numpy.full(len(y), self.initial_dispersion)
 
-            granule = self.create_granule([self.height], x, input_dispersion, y, output_dispersion)
+            granule = self.create_granule(x, input_dispersion, y, output_dispersion)
             
             self.granules.append(granule)
         else:
@@ -339,8 +358,8 @@ class EOGS:
 
         # delete inactive granules
         for granule in self.granules:
-            # forget old samples
-            granule.samples = [sample for sample in granule.samples if self.height - sample < self.window]
+            # forget old samples (samples that are older than the window)
+            granule.samples = [sample for sample in granule.samples if self.height - sample.height < self.window]
 
             # delete inactive granules
             if len(granule.samples) == 0:
@@ -348,8 +367,10 @@ class EOGS:
 
         if self.mode == MODE_AUTOMATIC:
             # update parameters
+            # TODO
             pass
 
+        # update the height
         self.height += 1
 
     def train_many(self, x, y) -> None:
@@ -365,6 +386,12 @@ class EOGS:
 
         for sample, result in zip(x, y):
             self.train(sample, result)
+
+    def fit(self, x, y) -> None:
+        """
+        Alias for train
+        """
+        self.train_many(x, y)
 
     def predict_scalar(self, x) -> numpy.ndarray:
         """
