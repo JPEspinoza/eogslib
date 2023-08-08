@@ -239,7 +239,7 @@ class EOGS:
           ...
           [ 0,  0,  ..., 0 ]]
 
-        n rows, m columns
+        n + 1 rows, m columns
         """
         # top row
         coefficients_0 = numpy.array(output_central_point)
@@ -286,12 +286,13 @@ class EOGS:
         g.samples.append(sample)
 
         # update coefficients
-        # I have no idea if this is even remotely correct
-        # at the very least it doesn't crash
+        # coefficients must be in shape (n+1, m) where n is the number of input variables and m is the number of output variables
         XX = numpy.array([sample.input for sample in g.samples])
-        YY = numpy.array([sample.output for sample in g.samples])
+        YY = numpy.hstack([numpy.ones((len(g.samples), 1)), [sample.output for sample in g.samples]])
 
+        # calculate coefficients to use for predictions
         g.coefficients = numpy.linalg.lstsq(XX, YY, rcond=None)[0]
+
 
     def get_closest_granule(self, x: numpy.ndarray) -> Granule | None:
         """
@@ -465,7 +466,17 @@ class EOGS:
         """
         Same as predict_scalar
         """
-        return self.predict_scalar(x)
+
+        x = numpy.atleast_2d(x)
+        y = []
+
+        for sample in x:
+            try:
+                y.append(self.predict_scalar(sample))
+            except Exception as e:
+                y.append(numpy.zeros(len(self.granules[0].output_central_point)))
+
+        return numpy.array(y)
 
     def predict_interval(self, x) -> numpy.ndarray:
         """
