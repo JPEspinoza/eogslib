@@ -287,8 +287,8 @@ class EOGS:
 
         # update coefficients
         # coefficients must be in shape (n+1, m) where n is the number of input variables and m is the number of output variables
-        XX = numpy.array([sample.input for sample in g.samples])
-        YY = numpy.hstack([numpy.ones((len(g.samples), 1)), [sample.output for sample in g.samples]])
+        XX = numpy.hstack([numpy.ones((len(g.samples), 1)), [sample.input for sample in g.samples]])
+        YY = numpy.array([sample.output for sample in g.samples])
 
         # calculate coefficients to use for predictions
         g.coefficients = numpy.linalg.lstsq(XX, YY, rcond=None)[0]
